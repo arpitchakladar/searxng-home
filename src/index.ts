@@ -17,6 +17,16 @@ class SearXHomeManager {
   private selectElement: HTMLSelectElement | null;
   private readonly CACHE_KEY = 'searx_selected_instance';
 
+  // Define your persistent global preferences here
+  private readonly userPreferences: Record<string, string> = {
+    language: 'en', // e.g., English language
+    safesearch: '1', // 0: None, 1: Moderate, 2: Strict
+    categories: 'general', // Default category (general, science, IT, etc.)
+    engines: 'google',
+    autocomplete: 'google',
+    simple_style: 'black',
+  };
+
   constructor() {
     this.selectElement = document.getElementById('instance-select') as HTMLSelectElement;
     this.initSearch();
@@ -31,7 +41,6 @@ class SearXHomeManager {
       if (!this.selectElement) return;
       this.selectElement.innerHTML = '';
 
-      // Map and score instances using the correct JSON schema properties
       const validInstances = Object.entries(data.instances)
         .filter(([url]) => url.startsWith('https://'))
         .map(([url, info]) => ({
@@ -86,18 +95,14 @@ class SearXHomeManager {
 
   private calculateReliabilityScore(info: SearXInstance): number {
     let score = 0;
-
-    // Pull monthly or daily uptime percentage from nested object
     const uptime = info.uptime?.uptimeMonth ?? info.uptime?.uptimeDay ?? 0;
     score += Math.round(uptime * 2);
 
-    // Grade bonus (A+, A, etc.)
     const grade = info.http?.grade;
     if (grade === 'A+' || grade === 'A') score += 100;
     else if (grade === 'B') score += 60;
     else if (grade === 'C') score += 20;
 
-    // DNSSEC bonus
     if (info.network?.dnssec && info.network.dnssec > 1) {
       score += 30;
     }
@@ -121,7 +126,16 @@ class SearXHomeManager {
         return;
       }
 
-      window.location.href = `${selectedUrl}/search?q=${encodeURIComponent(query)}`;
+      // Construct target URL with query and user preferences parameters
+      const searchUrl = new URL(`${selectedUrl}/search`);
+      searchUrl.searchParams.append('q', query);
+
+      // Automatically append all defined user preferences
+      Object.entries(this.userPreferences).forEach(([key, value]) => {
+        searchUrl.searchParams.append(key, value);
+      });
+
+      window.location.href = searchUrl.toString();
     });
   }
 }
