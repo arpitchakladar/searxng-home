@@ -1,0 +1,47 @@
+{
+  "name": "searxng-home",
+  "version": "0.1.0",
+  "description": "Easy search with publicly hosted SearX instances",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js --watch",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write \"src/**/*.{ts,html,css}\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,js}": [
+      "npx eslint --fix",
+      "npx prettier --write"
+    ],
+    "src/**/*.{html,css}": [
+      "npx prettier --write"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arpitchakladar/searxng-home.git"
+  },
+  "author": "Arpit Chakladar",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/arpitchakladar/searxng-home/issues"
+  },
+  "homepage": "https://github.com/arpitchakladar/searxng-home#readme",
+  "dependencies": {
+    "esbuild": "^0.28.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.2.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3"
+  }
+}

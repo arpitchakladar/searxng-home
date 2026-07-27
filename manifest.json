@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "SearXNG Home",
+  "version": "1.0",
+  "description": "Easy search with publicly hosted SearX instances.",
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://searx.space/*",
+    "https://*/*"
+  ]
+}
