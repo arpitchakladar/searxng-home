@@ -15,6 +15,7 @@ interface SearXResponse {
 
 class SearXHomeManager {
   private selectElement: HTMLSelectElement | null;
+  private inputElement: HTMLInputElement | null;
   private readonly CACHE_KEY = 'searx_selected_instance';
 
   // Define your persistent global preferences here
@@ -29,8 +30,21 @@ class SearXHomeManager {
 
   constructor() {
     this.selectElement = document.getElementById('instance-select') as HTMLSelectElement;
+    this.inputElement = document.getElementById('search-input') as HTMLInputElement;
     this.initSearch();
     this.fetchInstances();
+    this.autofocusInput();
+  }
+
+  private autofocusInput(): void {
+    if (this.inputElement) {
+      this.inputElement.focus();
+
+      // Optional: Handle scenarios where browser focus shifts late during load
+      window.addEventListener('load', () => {
+        this.inputElement?.focus();
+      });
+    }
   }
 
   private async fetchInstances(): Promise<void> {
