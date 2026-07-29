@@ -19,6 +19,7 @@ class SearXHomeManager {
   private suggestionsElement: HTMLUListElement | null;
   private readonly CACHE_KEY = 'searx_selected_instance';
   private readonly FALLBACK_URL = 'https://search.ononoki.org';
+  private isLoadingSuggestions = false;
 
   // Autocomplete state.
   // highlightedIndex: -1 means the input itself is focused;
@@ -250,6 +251,8 @@ class SearXHomeManager {
     const instanceUrl = this.selectElement?.value || this.getSavedInstance();
     if (!instanceUrl) return;
 
+    this.showLoadingSuggestions();
+
     // Cancel any in-flight requests before starting a new batch
     this.abortController?.abort();
     this.abortController = new AbortController();
@@ -260,6 +263,8 @@ class SearXHomeManager {
     );
 
     const results = await Promise.allSettled(requests);
+
+    this.hideLoadingSuggestions();
 
     // Query may have changed while these were in flight
     if (this.inputElement?.value.trim() !== query) return;
@@ -280,6 +285,27 @@ class SearXHomeManager {
 
     this.currentSuggestions = merged;
     this.renderSuggestions();
+  }
+
+  private showLoadingSuggestions(): void {
+    if (!this.suggestionsElement) return;
+
+    this.isLoadingSuggestions = true;
+    this.currentSuggestions = [];
+    this.highlightedIndex = -1;
+
+    this.suggestionsElement.innerHTML = `
+      <li class="suggestion-loading" aria-disabled="true">
+        <span class="spinner" aria-hidden="true"></span>
+        Loading suggestions...
+      </li>
+    `;
+
+    this.showSuggestions();
+  }
+
+  private hideLoadingSuggestions(): void {
+    this.isLoadingSuggestions = false;
   }
 
   private async fetchFromProvider(
