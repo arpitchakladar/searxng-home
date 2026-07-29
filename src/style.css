@@ -74,6 +74,7 @@ body {
   border: 1px solid var(--base03);
   padding: 4px 12px;
   transition: border-color 0.15s ease;
+  position: relative;
 }
 
 .search-input-wrapper:focus-within {
@@ -108,6 +109,41 @@ body {
 
 .search-input-wrapper button:hover {
   color: var(--base0D);
+}
+
+.suggestions-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: 4px 0;
+  list-style: none;
+  background-color: var(--base01);
+  border: 1px solid var(--base03);
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.suggestions-list[hidden] {
+  display: none;
+}
+
+.suggestions-list li {
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  color: var(--base05);
+  cursor: pointer;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
+}
+
+.suggestions-list li[aria-selected='true'],
+.suggestions-list li:hover {
+  background-color: var(--base02);
+  color: var(--base07);
 }
 
 .dropdown-wrapper {
