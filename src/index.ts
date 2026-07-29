@@ -20,12 +20,27 @@ class SearXHomeManager {
   private readonly CACHE_KEY = 'searx_selected_instance';
   private readonly FALLBACK_URL = 'https://search.ononoki.org';
 
-  // Autocomplete state
+  // Autocomplete state.
+  // highlightedIndex: -1 means the input itself is focused;
+  // 0..length-1 means that <li> currently has DOM focus.
   private debounceTimer: number | undefined;
   private abortController: AbortController | null = null;
   private currentSuggestions: string[] = [];
   private highlightedIndex = -1;
   private readonly DEBOUNCE_MS = 200;
+  private readonly MAX_SUGGESTIONS = 10;
+
+  // Engines queried in parallel for autocomplete suggestions.
+  // Results are merged + de-duplicated. Order here = priority order
+  // when the same suggestion comes back from multiple engines.
+  private readonly AUTOCOMPLETE_PROVIDERS: string[] = [
+    'google',
+    'duckduckgo',
+    'brave',
+    'startpage',
+    'wikipedia',
+    'swisscows',
+  ];
 
   // Define your persistent global preferences here
   private readonly userPreferences: Record<string, string> = {
@@ -36,17 +51,6 @@ class SearXHomeManager {
     autocomplete: 'google',
     simple_style: 'black',
   };
-
-  private readonly AUTOCOMPLETE_PROVIDERS: string[] = [
-    'google',
-    'duckduckgo',
-    'brave',
-    'startpage',
-    'wikipedia',
-    'swisscows',
-  ];
-
-  private readonly MAX_SUGGESTIONS = 10;
 
   constructor() {
     this.selectElement = document.getElementById('instance-select') as HTMLSelectElement;
@@ -224,16 +228,20 @@ class SearXHomeManager {
       }, this.DEBOUNCE_MS);
     });
 
+    // keydown is handled on both the input and (via delegation) the list,
+    // since DOM focus now actually moves onto the <li> elements.
     this.inputElement.addEventListener('keydown', (e) => this.handleKeyNav(e));
+    this.suggestionsElement.addEventListener('keydown', (e) => this.handleKeyNav(e));
 
-    // Hide on blur, but delay so a click on a suggestion still registers first
-    this.inputElement.addEventListener('blur', () => {
-      window.setTimeout(() => this.hideSuggestions(), 120);
-    });
-
-    this.inputElement.addEventListener('focus', () => {
-      if (this.currentSuggestions.length > 0) {
-        this.showSuggestions();
+    // Hide the list only when focus leaves the whole search box component
+    // (input + suggestions), not when it merely moves from the input to a
+    // suggestion or vice versa.
+    const wrapper = this.inputElement.closest('.search-input-wrapper');
+    wrapper?.addEventListener('focusout', (e) => {
+      const focusEvent = e as FocusEvent;
+      const nextFocused = focusEvent.relatedTarget as Node | null;
+      if (!nextFocused || !wrapper.contains(nextFocused)) {
+        this.hideSuggestions();
       }
     });
   }
@@ -259,16 +267,15 @@ class SearXHomeManager {
     const merged: string[] = [];
     const seen = new Set<string>();
 
-    for (const result of results) {
+    outer: for (const result of results) {
       if (result.status !== 'fulfilled') continue;
       for (const suggestion of result.value) {
         const key = suggestion.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
         merged.push(suggestion);
-        if (merged.length >= this.MAX_SUGGESTIONS) break;
+        if (merged.length >= this.MAX_SUGGESTIONS) break outer;
       }
-      if (merged.length >= this.MAX_SUGGESTIONS) break;
     }
 
     this.currentSuggestions = merged;
@@ -299,7 +306,7 @@ class SearXHomeManager {
       const data: [string, string[]] = await response.json();
       return data[1] ?? [];
     } catch (error) {
-      if ((error as Error).name === 'AbortError') throw error; // propagate to Promise.allSettled as rejected
+      if ((error as Error).name === 'AbortError') throw error; // propagate as rejected to Promise.allSettled
       console.error(`Autocomplete provider "${provider}" failed:`, error);
       return [];
     }
@@ -321,8 +328,11 @@ class SearXHomeManager {
       li.textContent = suggestion;
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', 'false');
+      // Focusable via script (li.focus()) but skipped by normal Tab
+      // traversal — we manage Tab ourselves in handleKeyNav.
+      li.tabIndex = -1;
 
-      // mousedown fires before blur, so the click isn't lost
+      // mousedown fires before focusout, so the click isn't lost
       li.addEventListener('mousedown', (e) => {
         e.preventDefault();
         this.selectSuggestion(index);
@@ -334,39 +344,89 @@ class SearXHomeManager {
     this.showSuggestions();
   }
 
+  // Moves actual DOM focus to the input (-1) or to the <li> at `index`,
+  // and keeps aria-selected in sync.
+  private focusIndex(index: number): void {
+    if (!this.suggestionsElement) return;
+    const items = Array.from(this.suggestionsElement.querySelectorAll('li'));
+
+    if (index === -1) {
+      items.forEach((li) => li.setAttribute('aria-selected', 'false'));
+      this.highlightedIndex = -1;
+      this.inputElement?.focus();
+      return;
+    }
+
+    const li = items[index];
+    if (!li) return;
+
+    items.forEach((item, i) => item.setAttribute('aria-selected', String(i === index)));
+    this.highlightedIndex = index;
+    li.focus();
+    li.scrollIntoView({ block: 'nearest' });
+  }
+
   private handleKeyNav(e: KeyboardEvent): void {
     if (this.currentSuggestions.length === 0) return;
 
+    const lastIndex = this.currentSuggestions.length - 1;
+
+    if (e.key === 'Tab' && !e.shiftKey) {
+      if (this.highlightedIndex === -1) {
+        // From the input, Tab moves into the list
+        e.preventDefault();
+        this.focusIndex(0);
+      } else if (this.highlightedIndex === lastIndex) {
+        // Tab on the last suggestion returns focus to the input
+        e.preventDefault();
+        this.focusIndex(-1);
+      } else {
+        e.preventDefault();
+        this.focusIndex(this.highlightedIndex + 1);
+      }
+      return;
+    }
+
+    if (e.key === 'Tab' && e.shiftKey) {
+      if (this.highlightedIndex === 0) {
+        // Shift+Tab on the first suggestion returns focus to the input
+        e.preventDefault();
+        this.focusIndex(-1);
+      } else if (this.highlightedIndex > 0) {
+        e.preventDefault();
+        this.focusIndex(this.highlightedIndex - 1);
+      }
+      // Shift+Tab while the input is focused (-1): let the browser do its
+      // normal thing (move focus to whatever precedes the input).
+      return;
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      this.highlightedIndex = (this.highlightedIndex + 1) % this.currentSuggestions.length;
-      this.updateHighlight();
+      const next =
+        this.highlightedIndex === -1 || this.highlightedIndex === lastIndex
+          ? 0
+          : this.highlightedIndex + 1;
+      this.focusIndex(next);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      this.highlightedIndex =
-        (this.highlightedIndex - 1 + this.currentSuggestions.length) %
-        this.currentSuggestions.length;
-      this.updateHighlight();
+      const prev = this.highlightedIndex <= 0 ? lastIndex : this.highlightedIndex - 1;
+      this.focusIndex(prev);
     } else if (e.key === 'Enter') {
       if (this.highlightedIndex >= 0) {
         e.preventDefault();
         this.selectSuggestion(this.highlightedIndex);
       }
-      // otherwise let the form submit naturally with whatever's typed
+      // Enter while the input is focused (-1): let the form submit normally
     } else if (e.key === 'Escape') {
+      e.preventDefault();
       this.hideSuggestions();
+      this.inputElement?.focus();
     }
   }
 
-  private updateHighlight(): void {
-    if (!this.suggestionsElement) return;
-    const items = this.suggestionsElement.querySelectorAll('li');
-    items.forEach((li, index) => {
-      li.setAttribute('aria-selected', String(index === this.highlightedIndex));
-    });
-    items[this.highlightedIndex]?.scrollIntoView({ block: 'nearest' });
-  }
-
+  // Click or Enter on a suggestion — fills the input, closes the list,
+  // returns focus to the input, and submits.
   private selectSuggestion(index: number): void {
     const suggestion = this.currentSuggestions[index];
     if (!suggestion || !this.inputElement) return;
@@ -374,9 +434,6 @@ class SearXHomeManager {
     this.inputElement.value = suggestion;
     this.hideSuggestions();
     this.inputElement.focus();
-
-    // Submit immediately on selection — remove this line if you'd rather
-    // just fill the box and let the user hit Enter themselves.
     (document.getElementById('search-form') as HTMLFormElement)?.requestSubmit();
   }
 
