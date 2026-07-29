@@ -17,6 +17,7 @@ class SearXHomeManager {
   private selectElement: HTMLSelectElement | null;
   private inputElement: HTMLInputElement | null;
   private readonly CACHE_KEY = 'searx_selected_instance';
+  private readonly FALLBACK_URL = 'https://search.ononoki.org';
 
   // Define your persistent global preferences here
   private readonly userPreferences: Record<string, string> = {
@@ -36,11 +37,29 @@ class SearXHomeManager {
     this.autofocusInput();
   }
 
+  // localStorage can throw (Safari private mode, disabled storage, etc.)
+  // so every access goes through these helpers.
+  private getSavedInstance(): string | null {
+    try {
+      return localStorage.getItem(this.CACHE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private saveInstance(url: string): void {
+    try {
+      localStorage.setItem(this.CACHE_KEY, url);
+    } catch {
+      // storage unavailable — selection just won't persist across reloads
+    }
+  }
+
   private autofocusInput(): void {
     if (this.inputElement) {
       this.inputElement.focus();
 
-      // Optional: Handle scenarios where browser focus shifts late during load
+      // Handle scenarios where browser focus shifts late during load
       window.addEventListener('load', () => {
         this.inputElement?.focus();
       });
@@ -68,7 +87,8 @@ class SearXHomeManager {
         throw new Error('No instances found');
       }
 
-      const savedInstance = localStorage.getItem(this.CACHE_KEY);
+      const savedInstance = this.getSavedInstance();
+      const savedInstanceExists = validInstances.some(({ url }) => url === savedInstance);
 
       validInstances.forEach(({ url, info, score }) => {
         const hostname = new URL(url).hostname;
@@ -81,28 +101,35 @@ class SearXHomeManager {
 
         option.textContent = `${hostname}${gradeStr}${uptimeStr} (Score: ${score})`;
 
-        if (savedInstance === url) {
-          option.selected = true;
-        }
-
         this.selectElement?.appendChild(option);
       });
 
-      if (!localStorage.getItem(this.CACHE_KEY) && validInstances[0]) {
-        localStorage.setItem(this.CACHE_KEY, validInstances[0].url);
+      // Decide what should actually be selected: the previously saved
+      // instance if it's still in the list, otherwise the top-ranked one.
+      const instanceToSelect = savedInstanceExists
+        ? (savedInstance as string)
+        : validInstances[0].url;
+      this.selectElement.value = instanceToSelect;
+
+      // Keep localStorage in sync even if we had to fall back
+      // (no saved value yet, or the saved one disappeared from the list).
+      if (!savedInstanceExists) {
+        this.saveInstance(instanceToSelect);
       }
 
       this.selectElement.addEventListener('change', (e) => {
         const target = e.target as HTMLSelectElement;
         if (target?.value) {
-          localStorage.setItem(this.CACHE_KEY, target.value);
+          this.saveInstance(target.value);
         }
       });
     } catch (error) {
       console.error('Failed to load instances from searx.space:', error);
       if (this.selectElement) {
-        this.selectElement.innerHTML =
-          '<option value="https://search.ononoki.org">search.ononoki.org (Fallback)</option>';
+        const saved = this.getSavedInstance();
+        const fallbackUrl = saved ?? this.FALLBACK_URL;
+        const hostname = new URL(fallbackUrl).hostname;
+        this.selectElement.innerHTML = `<option value="${fallbackUrl}">${hostname} (Fallback)</option>`;
       }
     }
   }
@@ -133,12 +160,15 @@ class SearXHomeManager {
       const query = input?.value.trim();
       if (!query) return;
 
-      const selectedUrl = this.selectElement?.value || localStorage.getItem(this.CACHE_KEY);
+      const selectedUrl = this.selectElement?.value || this.getSavedInstance();
 
       if (!selectedUrl) {
         alert('Please select a valid SearXNG instance from the dropdown.');
         return;
       }
+
+      // Persist whatever is actually being used for this search.
+      this.saveInstance(selectedUrl);
 
       // Construct target URL with query and user preferences parameters
       const searchUrl = new URL(`${selectedUrl}/search`);
